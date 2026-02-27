@@ -1,0 +1,53 @@
+/**
+ * ระบบรับข้อมูลจากหน้าเว็บเพื่อบันทึกลง Google Sheet และบันทึกรูปภาพลง Google Drive
+ */
+
+const CONFIG = {
+  FOLDER_ID: "1qxf67WmBbVoJDNl0vCm5fPrR21K9Ij0Q", // ID โฟลเดอร์เก็บรูป
+  SHEET_ID: "1Yu1cYCZj9RErK-EG51QlCEsqGKAChth5FCp5mWotU8Q"      // ID ของไฟล์ Google Sheet
+};
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const ss = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+    
+    // เลือก Sheet แรกเสมอ เพื่อป้องกันปัญหาชื่อ Sheet ไม่ตรง (Sheet1 vs ชีต1)
+    const sheet = ss.getSheets()[0]; 
+    
+    // 1. จัดการอัปโหลดรูปภาพ (ถ้ามี)
+    let fileUrl = "ไม่มีรูปภาพ";
+    if (data.imageFile && data.imageFile.includes("base64")) {
+      const folder = DriveApp.getFolderById(CONFIG.FOLDER_ID);
+      const splitData = data.imageFile.split(',');
+      const contentType = splitData[0].match(/:(.*?);/)[1];
+      const bytes = Utilities.base64Decode(splitData[1]);
+      
+      // ตั้งชื่อไฟล์: TR-ID_วันที่.นามสกุล
+      const fileName = `TR_${data.transformerId}_${new Date().getTime()}.jpg`;
+      const blob = Utilities.newBlob(bytes, contentType, fileName);
+      const file = folder.createFile(blob);
+      
+      // ตั้งค่าให้ใครที่มีลิงก์ก็ดูรูปได้ (สำหรับเปิดดูจาก Sheet)
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      fileUrl = file.getUrl();
+    }
+
+    // 2. บันทึกข้อมูลลงใน Sheet
+    // ลำดับ: [วันเวลา, หมายเลขหม้อแปลง, พิกัด, ผลการตรวจสอบ, ลิงก์รูปภาพ]
+    sheet.appendRow([
+      new Date(), 
+      data.transformerId, 
+      data.rating, 
+      data.status, 
+      fileUrl
+    ]);
+
+    return ContentService.createTextOutput(JSON.stringify({ "result": "success" }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ "result": "error", "message": error.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
